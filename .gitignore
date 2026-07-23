@@ -1,8 +1,7 @@
 .idea
 notebooks/pl/data
-notebooks/pl/outputs/
+outputs/
 notebooks/en/data
-notebooks/en/outputs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

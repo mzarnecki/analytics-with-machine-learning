@@ -309,64 +309,6 @@ def create_demo_asteroids() -> pd.DataFrame:
     )
 
 
-def create_demo_complaints() -> pd.DataFrame:
-    templates = {
-        "Credit reporting": [
-            "My credit report contains an account that does not belong to me.",
-            "I disputed an incorrect late payment but it was not removed.",
-            "The same debt appears twice on my credit report.",
-        ],
-        "Debt collection": [
-            "A debt collector is calling about a debt I do not recognize.",
-            "The collector refuses to send validation of the debt.",
-            "I paid the balance but collection activity continues.",
-        ],
-        "Credit card": [
-            "My card was charged for purchases I did not authorize.",
-            "A merchant refund never appeared on my statement.",
-            "The bank rejected my dispute for an unauthorized payment.",
-        ],
-        "Mortgage": [
-            "The mortgage servicer applied my payment to fees.",
-            "The company repeatedly lost my loan modification documents.",
-            "My escrow payment increased without an explanation.",
-        ],
-        "Bank account": [
-            "My checking account was closed without warning.",
-            "The bank charged repeated overdraft fees.",
-            "A cash deposit is missing from my account.",
-        ],
-    }
-
-    rows = []
-    complaint_id = 1
-
-    for topic_id, (topic, narratives) in enumerate(
-        templates.items()
-    ):
-        for repetition in range(8):
-            narrative = narratives[
-                repetition % len(narratives)
-            ]
-            rows.append(
-                {
-                    "complaint_id": complaint_id,
-                    "product": topic,
-                    "issue": topic,
-                    "consumer_complaint_narrative": (
-                        f"{narrative} Customer service did not resolve "
-                        f"the problem after contact number "
-                        f"{repetition + 1}."
-                    ),
-                    "nmf_topic_id": topic_id,
-                    "embedding_cluster_id": topic_id,
-                }
-            )
-            complaint_id += 1
-
-    return pd.DataFrame(rows)
-
-
 def load_customers() -> tuple[pd.DataFrame, str]:
     path = first_existing_path(
         "CUSTOMER_RESULTS_PATH",
@@ -442,19 +384,6 @@ def load_asteroid_model():
 
     return None, "brak zapisanego modelu"
 
-
-def load_complaints() -> tuple[pd.DataFrame, str]:
-    path = first_existing_path(
-        "COMPLAINTS_RESULTS_PATH",
-        [
-            OUTPUT_DIR / "consumer_complaints_topics.parquet",
-        ],
-    )
-
-    if path:
-        return read_parquet(str(path)).copy(), str(path)
-
-    return create_demo_complaints(), "dane demonstracyjne"
 
 
 def numeric_columns(
@@ -542,7 +471,6 @@ asteroids, asteroids_source = load_asteroids()
 asteroid_model, asteroid_model_source = (
     load_asteroid_model()
 )
-complaints, complaints_source = load_complaints()
 
 st.title("Interaktywne demo analiz ML")
 st.caption(
@@ -556,28 +484,11 @@ with st.sidebar:
     st.write("**Produkty:**", products_source)
     st.write("**Asteroidy:**", asteroids_source)
     st.write("**Model asteroid:**", asteroid_model_source)
-    st.write("**Skargi:**", complaints_source)
 
-    if any(
-        source == "dane demonstracyjne"
-        for source in [
-            customers_source,
-            products_source,
-            asteroids_source,
-            complaints_source,
-        ]
-    ):
-        st.warning(
-            "Część widoków używa danych demonstracyjnych. "
-            "Uruchom notebooki, aby utworzyć pliki "
-            "w katalogu outputs/."
-        )
-
-customer_tab, asteroid_tab, complaints_tab = st.tabs(
+customer_tab, asteroid_tab = st.tabs(
     [
         "👥 Klienci",
         "☄️ Asteroidy",
-        "📝 Skargi klientów",
     ]
 )
 
@@ -1143,232 +1054,4 @@ with asteroid_tab:
                     f"{demo_probability:.1%}"
                 )
 
-with complaints_tab:
-    st.header("Analiza skarg klientów")
-
-    narrative_column = next(
-        (
-            column
-            for column in [
-                "consumer_complaint_narrative",
-                "complaint_narrative",
-                "narrative",
-            ]
-            if column in complaints.columns
-        ),
-        None,
-    )
-
-    topic_column = next(
-        (
-            column
-            for column in [
-                "nmf_topic_id",
-                "embedding_cluster_id",
-                "product",
-                "issue",
-            ]
-            if column in complaints.columns
-        ),
-        None,
-    )
-
-    if narrative_column is None:
-        st.error(
-            "Nie znaleziono kolumny z narracją skargi."
-        )
-    else:
-        if topic_column:
-            topic_values = (
-                complaints[topic_column]
-                .dropna()
-                .astype(str)
-                .unique()
-                .tolist()
-            )
-            selected_topic = st.selectbox(
-                "Wybierz temat lub klaster",
-                sorted(topic_values),
-            )
-            topic_frame = complaints[
-                complaints[topic_column]
-                .astype(str)
-                == selected_topic
-            ].copy()
-        else:
-            selected_topic = "wszystkie"
-            topic_frame = complaints.copy()
-
-        topic_share = len(topic_frame) / max(
-            len(complaints),
-            1,
-        )
-
-        complaint_metrics = st.columns(3)
-        complaint_metrics[0].metric(
-            "Liczba zgłoszeń",
-            f"{len(topic_frame):,}",
-        )
-        complaint_metrics[1].metric(
-            "Udział w zbiorze",
-            f"{topic_share:.1%}",
-        )
-        complaint_metrics[2].metric(
-            "Temat",
-            selected_topic,
-        )
-
-        st.subheader("Przykładowe zgłoszenia")
-        example_columns = [
-            column
-            for column in [
-                "product",
-                "issue",
-                narrative_column,
-            ]
-            if column in topic_frame.columns
-        ]
-
-        st.dataframe(
-            topic_frame[
-                example_columns
-            ].head(10),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.subheader(
-            "Wyszukiwanie tekstowe "
-            "— proste PoC TF-IDF"
-        )
-
-        all_texts = (
-            complaints[narrative_column]
-            .dropna()
-            .astype(str)
-            .tolist()
-        )
-        vectorizer, complaint_matrix = (
-            build_text_index(
-                tuple(all_texts)
-            )
-        )
-
-        query = st.text_input(
-            "Opisz problem klienta",
-            value=(
-                "The bank did not return money "
-                "after an unauthorized card transaction"
-            ),
-        )
-
-        if query.strip():
-            query_vector = vectorizer.transform(
-                [query]
-            )
-            scores = cosine_similarity(
-                query_vector,
-                complaint_matrix,
-            ).ravel()
-            top_indices = np.argsort(
-                scores
-            )[::-1][:5]
-
-            search_results = complaints.iloc[
-                top_indices
-            ].copy()
-            search_results["similarity"] = (
-                scores[top_indices]
-            )
-
-            search_columns = [
-                column
-                for column in [
-                    "product",
-                    "issue",
-                    narrative_column,
-                    "similarity",
-                ]
-                if column
-                in search_results.columns
-            ]
-
-            st.dataframe(
-                search_results[
-                    search_columns
-                ].round(3),
-                use_container_width=True,
-                hide_index=True,
-            )
-
-        st.subheader("Podsumowanie tematu")
-
-        narratives = (
-            topic_frame[narrative_column]
-            .dropna()
-            .astype(str)
-            .tolist()
-        )
-        terms = top_terms(narratives)
-
-        summary = (
-            f"Temat **{selected_topic}** obejmuje "
-            f"**{len(topic_frame)} zgłoszeń**, czyli "
-            f"**{topic_share:.1%}** analizowanego "
-            f"zbioru. Najczęściej reprezentowane "
-            f"terminy to: "
-            f"**{', '.join(terms) if terms else 'brak'}**. "
-            "Przykładowe zgłoszenia powinny zostać "
-            "przejrzane przez analityka przed nadaniem "
-            "ostatecznej nazwy biznesowej."
-        )
-        st.info(summary)
-
-        prompt_lines = [
-            "Jesteś analitykiem jakości obsługi klienta.",
-            "",
-            "Na podstawie poniższych zagregowanych informacji:",
-            "1. nadaj tematowi krótką nazwę,",
-            "2. przygotuj podsumowanie w 2-3 zdaniach,",
-            "3. opisz możliwy wpływ biznesowy,",
-            "4. zaproponuj jeden kolejny krok analityczny.",
-            "",
-            f"Liczba zgłoszeń: {len(topic_frame)}",
-            f"Udział w zbiorze: {topic_share:.1%}",
-            f"Najważniejsze terminy: {', '.join(terms)}",
-            "",
-            "Przykładowe zgłoszenia:",
-        ]
-        prompt_lines.extend(
-            f"- {text}"
-            for text in narratives[:5]
-        )
-        prompt_lines.extend(
-            [
-                "",
-                "Nie zmieniaj podanych liczb i nie "
-                "dopisuj statystyk, których nie ma "
-                "w danych.",
-            ]
-        )
-        llm_prompt = "\n".join(prompt_lines)
-
-        with st.expander(
-            "Prompt gotowy do przekazania do LLM"
-        ):
-            st.code(
-                llm_prompt,
-                language="text",
-            )
-            st.caption(
-                "W wersji produkcyjnej przycisk może "
-                "wywoływać wybrany model lokalny lub API. "
-                "Liczby powinny nadal pochodzić z kodu."
-            )
-
 st.divider()
-st.caption(
-    "Aplikacja demonstracyjna PoC. Wyniki na danych "
-    "demonstracyjnych nie powinny być interpretowane "
-    "biznesowo ani naukowo."
-)
